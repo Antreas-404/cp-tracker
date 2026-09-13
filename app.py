@@ -7,6 +7,9 @@ from flask import Flask, render_template, request, jsonify, session
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_change_this_in_production'
 
+# إعدادات الـ Session لضمان ثبات التشفير على Vercel
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = True
 users_db = {}
 
 def get_codeforces_stats(handle):
