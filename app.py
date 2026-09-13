@@ -1,15 +1,46 @@
 import os
+import psycopg2
+import psycopg2.extras
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, jsonify, session
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_key_change_this_in_production'
+app.secret_key = os.environ.get('SESSION_SECRET', 'super_secret_key_change_this_in_production')
 
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = True
-users_db = {}
+
+# الاتصال بـ Vercel Postgres
+def get_db_connection():
+    db_url = os.environ.get('POSTGRES_URL')
+    if not db_url:
+        raise Exception("POSTGRES_URL is missing! Make sure Postgres storage is attached to your Vercel project.")
+    return psycopg2.connect(db_url)
+
+# إنشاء جدول المستخدمين تلقائياً إذا لم يكن موجوداً
+def init_db():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                username VARCHAR(50) PRIMARY KEY,
+                password VARCHAR(255) NOT NULL,
+                display_name VARCHAR(100) NOT NULL,
+                cf_handle VARCHAR(50) DEFAULT '',
+                ac_handle VARCHAR(50) DEFAULT '',
+                lc_handle VARCHAR(50) DEFAULT '',
+                cses_id VARCHAR(50) DEFAULT ''
+            );
+        ''')
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Database Initialization Error: {e}")
+
+init_db()
 
 def get_codeforces_stats(handle):
     if not handle: return []
@@ -55,17 +86,14 @@ def calculate_streak_and_stats(timestamps):
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    # حساب أعداد اليوم، الشهر، والسنة
     day_cnt = sum(1 for ts in timestamps if ts >= today_start)
     month_cnt = sum(1 for ts in timestamps if ts >= month_start)
     year_cnt = sum(1 for ts in timestamps if ts >= year_start)
 
-    # حساب الـ Streak بالأيام المتتالية
     solved_dates = {ts.date() for ts in timestamps}
     current_date = now.date()
     streak = 0
 
-    # لو محليش النهاردة، بنبدأ نراجع من امبارح لو الـ streak شغال
     if current_date not in solved_dates:
         current_date -= timedelta(days=1)
 
@@ -89,18 +117,23 @@ def register():
     if not username or not password or not display_name:
         return jsonify({'error': 'All fields are required.'}), 400
 
-    if username in users_db:
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
+    cur.execute('SELECT username FROM users WHERE username = %s', (username,))
+    if cur.fetchone():
+        cur.close()
+        conn.close()
         return jsonify({'error': 'Username is already taken.'}), 400
 
-    users_db[username] = {
-        'username': username,
-        'password': password,
-        'display_name': display_name,
-        'cf_handle': '',
-        'ac_handle': '',
-        'lc_handle': '',
-        'cses_id': ''
-    }
+    cur.execute(
+        'INSERT INTO users (username, password, display_name) VALUES (%s, %s, %s)',
+        (username, password, display_name)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
     session['user'] = username
     return jsonify({'message': 'Account created and logged in successfully!'})
 
@@ -110,8 +143,14 @@ def login():
     username = data.get('username', '').strip().lower()
     password = data.get('password', '').strip()
 
-    user = users_db.get(username)
-    if not user or user['password'] != password:
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute('SELECT * FROM users WHERE username = %s AND password = %s', (username, password))
+    user = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not user:
         return jsonify({'error': 'Invalid username or password.'}), 400
 
     session['user'] = username
@@ -125,10 +164,19 @@ def logout():
 @app.route('/api/auth/me', methods=['GET'])
 def get_current_user():
     username = session.get('user')
-    if not username or username not in users_db:
+    if not username:
         return jsonify({'logged_in': False})
     
-    u = users_db[username]
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute('SELECT * FROM users WHERE username = %s', (username,))
+    u = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not u:
+        return jsonify({'logged_in': False})
+
     return jsonify({
         'logged_in': True,
         'username': u['username'],
@@ -142,25 +190,45 @@ def get_current_user():
 @app.route('/api/profile', methods=['PUT'])
 def update_profile():
     username = session.get('user')
-    if not username or username not in users_db:
+    if not username:
         return jsonify({'error': 'Unauthorized. Please login.'}), 401
 
     data = request.json
-    users_db[username]['display_name'] = data.get('display_name', users_db[username]['display_name']).strip()
-    users_db[username]['cf_handle'] = data.get('cf_handle', '').strip()
-    users_db[username]['ac_handle'] = data.get('ac_handle', '').strip()
-    users_db[username]['lc_handle'] = data.get('lc_handle', '').strip()
-    users_db[username]['cses_id'] = data.get('cses_id', '').strip()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''
+        UPDATE users 
+        SET display_name = %s, cf_handle = %s, ac_handle = %s, lc_handle = %s, cses_id = %s
+        WHERE username = %s
+    ''', (
+        data.get('display_name', '').strip(),
+        data.get('cf_handle', '').strip(),
+        data.get('ac_handle', '').strip(),
+        data.get('lc_handle', '').strip(),
+        data.get('cses_id', '').strip(),
+        username
+    ))
+    conn.commit()
+    cur.close()
+    conn.close()
 
     return jsonify({'message': 'Profile updated successfully!'})
 
 @app.route('/api/scoreboard', methods=['GET'])
 def get_scoreboard():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute('SELECT * FROM users')
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+
     scoreboard = []
 
-    for username, user in users_db.items():
-        # دمج كل الـ Timestamps المتاحة من المنصات الزمانية
-        all_ts = get_codeforces_stats(user['cf_handle']) + get_atcoder_stats(user['ac_handle'])
+    for user in users:
+        cf_ts = get_codeforces_stats(user['cf_handle'])
+        ac_ts = get_atcoder_stats(user['ac_handle'])
+        all_ts = cf_ts + ac_ts
 
         day, month, year, streak = calculate_streak_and_stats(all_ts)
 
@@ -172,12 +240,11 @@ def get_scoreboard():
             'year': year,
             'streak': streak,
             'details': {
-                'cf': len(get_codeforces_stats(user['cf_handle'])),
-                'ac': len(get_atcoder_stats(user['ac_handle']))
+                'cf': len(cf_ts),
+                'ac': len(ac_ts)
             }
         })
 
-    # الترتيب تنازلياً: الأولوية للأكثر حلاً اليوم، ثم أطول Streak، ثم إجمالي السنة
     scoreboard.sort(key=lambda x: (x['today'], x['streak'], x['year']), reverse=True)
     return jsonify(scoreboard)
 
