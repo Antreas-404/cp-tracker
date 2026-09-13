@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CP Tracker - Leaderboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-6 font-sans text-left">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Top Navigation -->
+        <div class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
+            <h1 class="text-3xl font-extrabold text-blue-500">🏆 CP Tracker Leaderboard</h1>
+            <div id="auth-actions"></div>
+        </div>
+
+        <!-- Personal Settings (Visible only when logged in) -->
+        <div id="profile-card" class="hidden bg-gray-800 p-6 rounded-xl shadow-lg mb-8 border border-blue-600">
+            <h2 class="text-xl font-bold mb-4 text-blue-400">⚙️ Your Profile Settings</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div>
+                    <label class="text-xs text-gray-400">Display Name</label>
+                    <input type="text" id="p_display_name" placeholder="e.g. John Doe" class="w-full p-2 bg-gray-700 rounded border border-gray-600 text-left">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Codeforces Handle</label>
+                    <input type="text" id="p_cf_handle" placeholder="e.g. tourist" class="w-full p-2 bg-gray-700 rounded border border-gray-600 text-left">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">AtCoder Handle</label>
+                    <input type="text" id="p_ac_handle" placeholder="e.g. chokudai" class="w-full p-2 bg-gray-700 rounded border border-gray-600 text-left">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="text-xs text-gray-400">LeetCode Username</label>
+                    <input type="text" id="p_lc_handle" placeholder="e.g. neetcode" class="w-full p-2 bg-gray-700 rounded border border-gray-600 text-left">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">CSES User ID</label>
+                    <input type="text" id="p_cses_id" placeholder="e.g. 12345" class="w-full p-2 bg-gray-700 rounded border border-gray-600 text-left">
+                </div>
+            </div>
+            <button onclick="updateProfile()" class="bg-green-600 hover:bg-green-500 text-white font-bold px-6 py-2 rounded-lg transition">Save Handles</button>
+        </div>
+
+        <!-- Global Scoreboard Table -->
+        <div class="bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-700">
+            <div class="p-5 border-b border-gray-700 flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-gray-200">Public Leaderboard</h2>
+                <button onclick="loadScoreboard()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm transition">Refresh Data 🔄</button>
+            </div>
+
+            <table class="w-full text-left">
+                <thead class="bg-gray-700 text-gray-300">
+                    <tr>
+                        <th class="p-4 text-left">Rank</th>
+                        <th class="p-4 text-left">Competitor</th>
+                        <th class="p-4 text-center">Today</th>
+                        <th class="p-4 text-center">This Month</th>
+                        <th class="p-4 text-center">This Year</th>
+                        <th class="p-4 text-center">Platforms Breakdown</th>
+                        <th class="p-4 text-center">Total Solved</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreboard-body">
+                    <tr>
+                        <td colspan="7" class="p-6 text-center text-gray-400">Loading data...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function checkAuth() {
+            const res = await fetch('/api/auth/me');
+            const data = await res.json();
+            const authDiv = document.getElementById('auth-actions');
+            const profileCard = document.getElementById('profile-card');
+
+            if (data.logged_in) {
+                currentUser = data;
+                authDiv.innerHTML = `
+                    <span class="mr-4 font-bold text-gray-300">Welcome, ${data.display_name} (@${data.username})</span>
+                    <button onclick="logout()" class="bg-red-600 hover:bg-red-500 px-4 py-1.5 rounded-lg text-sm">Logout</button>
+                `;
+                profileCard.classList.remove('hidden');
+                document.getElementById('p_display_name').value = data.display_name;
+                document.getElementById('p_cf_handle').value = data.cf_handle;
+                document.getElementById('p_ac_handle').value = data.ac_handle;
+                document.getElementById('p_lc_handle').value = data.lc_handle;
+                document.getElementById('p_cses_id').value = data.cses_id;
+            } else {
+                currentUser = null;
+                profileCard.classList.add('hidden');
+                authDiv.innerHTML = `
+                    <button onclick="loginPrompt()" class="bg-blue-600 hover:bg-blue-500 px-4 py-1.5 rounded-lg text-sm mr-2">Login</button>
+                    <button onclick="registerPrompt()" class="bg-green-600 hover:bg-green-500 px-4 py-1.5 rounded-lg text-sm">Register</button>
+                `;
+            }
+        }
+
+        async function registerPrompt() {
+            const username = prompt("Enter Username (English only):");
+            if (!username) return;
+            const password = prompt("Enter Password:");
+            if (!password) return;
+            const display_name = prompt("Enter Display Name:");
+            if (!display_name) return;
+
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, display_name })
+            });
+            const result = await res.json();
+            alert(result.message || result.error);
+            checkAuth();
+            loadScoreboard();
+        }
+
+        async function loginPrompt() {
+            const username = prompt("Username:");
+            if (!username) return;
+            const password = prompt("Password:");
+            if (!password) return;
+
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const result = await res.json();
+            alert(result.message || result.error);
+            checkAuth();
+            loadScoreboard();
+        }
+
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            checkAuth();
+            loadScoreboard();
+        }
+
+        async function updateProfile() {
+            const display_name = document.getElementById('p_display_name').value;
+            const cf_handle = document.getElementById('p_cf_handle').value;
+            const ac_handle = document.getElementById('p_ac_handle').value;
+            const lc_handle = document.getElementById('p_lc_handle').value;
+            const cses_id = document.getElementById('p_cses_id').value;
+
+            const res = await fetch('/api/profile', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ display_name, cf_handle, ac_handle, lc_handle, cses_id })
+            });
+
+            const result = await res.json();
+            alert(result.message || result.error);
+            loadScoreboard();
+        }
+
+        async function loadScoreboard() {
+            const tbody = document.getElementById('scoreboard-body');
+            tbody.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-gray-400">Fetching problem counts from platforms...</td></tr>';
+
+            const res = await fetch('/api/scoreboard');
+            const data = await res.json();
+            
+            tbody.innerHTML = '';
+
+            if(data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-gray-400">No registered competitors yet. Create an account to start!</td></tr>';
+                return;
+            }
+
+            data.forEach((user, index) => {
+                const isMe = currentUser && currentUser.username === user.username;
+                const row = `
+                    <tr class="border-b border-gray-700 ${isMe ? 'bg-blue-950/40 font-bold' : 'hover:bg-gray-750'}">
+                        <td class="p-4 font-bold text-gray-400">#${index + 1}</td>
+                        <td class="p-4">
+                            <div class="text-blue-400 text-lg">${user.display_name} ${isMe ? '👤 (You)' : ''}</div>
+                            <div class="text-xs text-gray-500">@${user.username}</div>
+                        </td>
+                        <td class="p-4 text-center"><span class="bg-green-900 text-green-300 px-3 py-1 rounded-full text-sm font-bold">${user.day}</span></td>
+                        <td class="p-4 text-center"><span class="bg-yellow-900 text-yellow-300 px-3 py-1 rounded-full text-sm font-bold">${user.month}</span></td>
+                        <td class="p-4 text-center"><span class="bg-purple-900 text-purple-300 px-3 py-1 rounded-full text-sm font-bold">${user.year}</span></td>
+                        <td class="p-4 text-center text-xs text-gray-400">
+                            CF: ${user.details.cf} | AC: ${user.details.ac} | LC: ${user.details.lc} | CSES: ${user.details.cses}
+                        </td>
+                        <td class="p-4 text-center text-xl font-extrabold text-white">${user.total}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+        checkAuth();
+        loadScoreboard();
+        setInterval(loadScoreboard, 5000);
+    </script>
+</body>
+</html>
