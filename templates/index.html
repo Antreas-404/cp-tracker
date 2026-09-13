@@ -58,10 +58,10 @@
                         <th class="p-4 text-left">Rank</th>
                         <th class="p-4 text-left">Competitor</th>
                         <th class="p-4 text-center">Today</th>
+                        <th class="p-4 text-center">Streak 🔥</th>
                         <th class="p-4 text-center">This Month</th>
                         <th class="p-4 text-center">This Year</th>
                         <th class="p-4 text-center">Platforms Breakdown</th>
-                        <th class="p-4 text-center">Total Solved</th>
                     </tr>
                 </thead>
                 <tbody id="scoreboard-body">
@@ -166,7 +166,6 @@
 
         async function loadScoreboard() {
             const tbody = document.getElementById('scoreboard-body');
-            tbody.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-gray-400">Fetching problem counts from platforms...</td></tr>';
 
             const res = await fetch('/api/scoreboard');
             const data = await res.json();
@@ -187,13 +186,13 @@
                             <div class="text-blue-400 text-lg">${user.display_name} ${isMe ? '👤 (You)' : ''}</div>
                             <div class="text-xs text-gray-500">@${user.username}</div>
                         </td>
-                        <td class="p-4 text-center"><span class="bg-green-900 text-green-300 px-3 py-1 rounded-full text-sm font-bold">${user.day}</span></td>
+                        <td class="p-4 text-center"><span class="bg-green-900 text-green-300 px-3 py-1 rounded-full text-sm font-bold">${user.today}</span></td>
+                        <td class="p-4 text-center"><span class="bg-orange-900 text-orange-300 px-3 py-1 rounded-full text-sm font-bold">${user.streak} Days 🔥</span></td>
                         <td class="p-4 text-center"><span class="bg-yellow-900 text-yellow-300 px-3 py-1 rounded-full text-sm font-bold">${user.month}</span></td>
                         <td class="p-4 text-center"><span class="bg-purple-900 text-purple-300 px-3 py-1 rounded-full text-sm font-bold">${user.year}</span></td>
                         <td class="p-4 text-center text-xs text-gray-400">
-                            CF: ${user.details.cf} | AC: ${user.details.ac} | LC: ${user.details.lc} | CSES: ${user.details.cses}
+                            CF: ${user.details ? user.details.cf : 0} | AC: ${user.details ? user.details.ac : 0}
                         </td>
-                        <td class="p-4 text-center text-xl font-extrabold text-white">${user.total}</td>
                     </tr>
                 `;
                 tbody.innerHTML += row;
@@ -202,7 +201,7 @@
 
         checkAuth();
         loadScoreboard();
-        setInterval(loadScoreboard, 5000);
+        setInterval(loadScoreboard, 10000);
     </script>
 </body>
 </html>
